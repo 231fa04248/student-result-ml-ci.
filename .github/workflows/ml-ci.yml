@@ -4,11 +4,9 @@ on:
   push:
     branches:
       - main
-
   pull_request:
     branches:
       - main
-
   workflow_dispatch:
 
 permissions:
@@ -35,6 +33,9 @@ jobs:
 
       - name: Train student result model
         run: python train_model.py
+
+      - name: Check ML quality gate
+        run: python quality_gate.py
 
       - name: Run automated ML tests
         run: python -m unittest discover -v
