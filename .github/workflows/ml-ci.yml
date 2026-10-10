@@ -41,9 +41,8 @@ jobs:
       - name: Run automated ML tests
         run: python -m unittest discover -v
 
-      # Step 10: Deliberately test a missing model file
       - name: Verify model artifact exists
-        run: test -f student_result_model_missing.pkl
+        run: test -f student_result_model.pkl
 
       - name: Upload validated ML artifacts
         uses: actions/upload-artifact@v7
