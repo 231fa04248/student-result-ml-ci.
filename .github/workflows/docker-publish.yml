@@ -12,7 +12,7 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: student-result-prediction
+  IMAGE_NAME: student-result-ml
 
 jobs:
   build-test-publish:
