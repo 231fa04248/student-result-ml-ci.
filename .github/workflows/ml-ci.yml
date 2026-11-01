@@ -1,4 +1,4 @@
-name: Student Result ML CI-CD
+: Student Result ML CI-CD
 
 on:
   push:
