@@ -1,17 +1,16 @@
 
-from pathlib import Path
 import logging
 import sys
 import time
 import uuid
+from pathlib import Path
 
 import joblib
 import pandas as pd
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, g
+from werkzeug.exceptions import HTTPException
 
-app = Flask(__name__)
-
-# Step 4: Configure Application Logger
+# Logging configuration
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
@@ -20,6 +19,8 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger("student-result-api")
+
+app = Flask(__name__)
 
 MODEL_PATH = Path("student_result_model.pkl")
 
@@ -31,111 +32,83 @@ FEATURES = [
 ]
 
 
-# Step 5: Log Model Loading
-def load_model():
-    if not MODEL_PATH.exists():
-        logger.error(
-            "event=model_file_missing model_file=%s",
-            MODEL_PATH
-        )
-        raise FileNotFoundError(
-            "student_result_model.pkl was not found. "
-            "Run the training pipeline first."
-        )
-
-    try:
-        model = joblib.load(MODEL_PATH)
-        logger.info(
-            "event=model_loaded model_file=%s",
-            MODEL_PATH
-        )
-        return model
-
-    except Exception:
-        logger.exception(
-            "event=model_load_failed model_file=%s",
-            MODEL_PATH
-        )
-        raise
-
-
-# Step 6: Request and Response Logging
+# Request logging middleware
 @app.before_request
 def before_request():
-    request.request_id = request.headers.get(
-        "X-Request-ID", str(uuid.uuid4())
+    g.request_id = str(uuid.uuid4())
+    g.start_time = time.time()
+
+    logger.info(
+        "Request started | ID: %s | Method: %s | Path: %s",
+        g.request_id,
+        request.method,
+        request.path
     )
-    request.start_time = time.perf_counter()
 
 
 @app.after_request
 def after_request(response):
-    duration_ms = (
-        time.perf_counter() - request.start_time
-    ) * 1000
+    duration = time.time() - getattr(g, "start_time", time.time())
+    request_id = getattr(g, "request_id", "unknown")
 
-    level = (
-        logging.WARNING
-        if response.status_code >= 400
-        else logging.INFO
-    )
+    response.headers["X-Request-ID"] = request_id
 
-    logger.log(
-        level,
-        "event=http_request request_id=%s method=%s path=%s status=%s duration_ms=%.2f",
-        request.request_id,
-        request.method,
-        request.path,
+    logger.info(
+        "Request completed | ID: %s | Status: %s | Duration: %.4f seconds",
+        request_id,
         response.status_code,
-        duration_ms
+        duration
     )
-
-    response.headers["X-Request-ID"] = request.request_id
 
     return response
 
 
-# Step 7: Handle Application Errors
-@app.errorhandler(Exception)
-def handle_exception(error):
-    logger.exception(
-        "event=application_error request_id=%s error_type=%s",
-        getattr(request, "request_id", "unknown"),
-        type(error).__name__
-    )
+# Load trained model
+def load_model():
+    if not MODEL_PATH.exists():
+        logger.error("Model file not found: %s", MODEL_PATH)
+        raise FileNotFoundError(
+            "student_result_model.pkl was not found. Run the training pipeline first."
+        )
 
-    return jsonify({
-        "error": "Internal server error"
-    }), 500
+    logger.info("Loading prediction model")
+
+    model = joblib.load(MODEL_PATH)
+
+    logger.info("Model loaded successfully")
+
+    return model
 
 
-# Home Endpoint
+# Home endpoint
 @app.get("/")
 def home():
+    logger.info("Home endpoint accessed")
+
     return jsonify({
         "status": "ok",
         "service": "student-result-prediction"
-    })
+    }), 200
 
 
-# Step 9: Health Endpoint
+# Health check endpoint
 @app.get("/health")
 def health_check():
+    logger.info("Health check requested")
+
     return jsonify({
         "status": "healthy",
         "service": "student-result-prediction"
     }), 200
 
 
-# Step 8: Safe Prediction Logging
+# Prediction endpoint
 @app.post("/predict")
 def predict():
     data = request.get_json(silent=True)
 
-    if not isinstance(data, dict):
-        logger.warning(
-            "event=validation_error reason=invalid_json_or_empty_body"
-        )
+    if not data:
+        logger.warning("Prediction request received without JSON body")
 
         return jsonify({
             "error": "JSON request body is required"
@@ -148,7 +121,7 @@ def predict():
 
     if missing_fields:
         logger.warning(
-            "event=validation_error missing_fields=%s",
+            "Prediction request missing fields: %s",
             missing_fields
         )
 
@@ -158,26 +131,18 @@ def predict():
         }), 400
 
     try:
-        sample = pd.DataFrame([{
-            feature: data[feature]
-            for feature in FEATURES
-        }])
-
-        logger.info(
-            "event=prediction_request feature_names=%s",
-            FEATURES
-        )
+        sample = pd.DataFrame([
+            {feature: data[feature] for feature in FEATURES}
+        ])
 
         model = load_model()
 
         prediction_code = int(model.predict(sample)[0])
 
-        prediction = (
-            "PASS" if prediction_code == 1 else "FAIL"
-        )
+        prediction = "PASS" if prediction_code == 1 else "FAIL"
 
         logger.info(
-            "event=prediction_success prediction=%s",
+            "Prediction successful | Result: %s",
             prediction
         )
 
@@ -186,30 +151,47 @@ def predict():
             "prediction_code": prediction_code
         }), 200
 
-    except (ValueError, TypeError) as e:
-        logger.warning(
-            "event=prediction_validation_failed error_type=%s",
-            type(e).__name__
-        )
+    except (ValueError, TypeError) as error:
+        logger.warning("Invalid prediction input: %s", error)
 
         return jsonify({
-            "error": str(e)
+            "error": str(error)
         }), 400
 
     except Exception:
-        logger.exception(
-            "event=prediction_failed request_id=%s",
-            request.request_id
-        )
+        logger.exception("Unexpected error during prediction")
 
         return jsonify({
-            "error": "Prediction failed"
+            "error": "Internal server error"
         }), 500
 
 
-# Run Flask Application
+# Handle HTTP errors
+@app.errorhandler(HTTPException)
+def handle_http_error(error):
+    logger.warning(
+        "HTTP error | Status: %s | Description: %s",
+        error.code,
+        error.description
+    )
+
+    return jsonify({
+        "error": error.description
+    }), error.code
+
+
+# Handle unexpected application errors
+@app.errorhandler(Exception)
+def handle_unexpected_error(error):
+    logger.exception("Unexpected application error")
+
+    return jsonify({
+        "error": "Internal server error"
+    }), 500
+
+
 if __name__ == "__main__":
-    logger.info("event=application_starting")
+    logger.info("Starting Student Result Prediction API")
 
     app.run(
         host="0.0.0.0",
