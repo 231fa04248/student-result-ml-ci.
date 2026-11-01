@@ -7,11 +7,15 @@ from pathlib import Path
 
 import joblib
 import pandas as pd
-from flask import Flask, jsonify, request, g
+from flask import Flask, jsonify, request, g, Response
 from werkzeug.exceptions import HTTPException
-from prometheus_client import Counter, Histogram, Gauge
-from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
-from flask import Response
+from prometheus_client import (
+    Counter,
+    Histogram,
+    Gauge,
+    generate_latest,
+    CONTENT_TYPE_LATEST
+)
 
 # ---------------- LOGGING CONFIGURATION ----------------
 
@@ -64,6 +68,9 @@ FEATURES = [
 
 SAFE_INPUT_FIELDS = set()
 
+# Global model variable
+model = None
+
 # ---------------- REQUEST / RESPONSE LOGGING ----------------
 
 @app.before_request
@@ -71,6 +78,7 @@ def before_request():
     g.request_id = request.headers.get(
         "X-Request-ID", str(uuid.uuid4())
     )
+
     g.start_time = time.perf_counter()
 
     logger.info(
@@ -84,8 +92,8 @@ def before_request():
 @app.after_request
 def after_request(response):
     duration = (
-        time.perf_counter() -
-        getattr(g, "start_time", time.perf_counter())
+        time.perf_counter()
+        - getattr(g, "start_time", time.perf_counter())
     )
 
     duration_ms = duration * 1000
@@ -94,7 +102,7 @@ def after_request(response):
 
     response.headers["X-Request-ID"] = request_id
 
-    # Do not count Prometheus scrape requests
+    # Exclude Prometheus scraping requests from API metrics
     if request.path != "/metrics":
         HTTP_REQUESTS.labels(
             method=request.method,
@@ -129,6 +137,8 @@ def after_request(response):
 # ---------------- MODEL LOADING ----------------
 
 def load_model():
+    global model
+
     try:
         if not MODEL_PATH.exists():
             MODEL_LOADED.set(0)
@@ -160,6 +170,7 @@ def load_model():
         return model
 
     except Exception:
+        model = None
         MODEL_LOADED.set(0)
 
         logger.exception(
@@ -196,9 +207,13 @@ def health_check():
 
 @app.post("/predict")
 def predict():
+    global model
+
     data = request.get_json(silent=True)
 
     if not isinstance(data, dict):
+        PREDICTIONS.labels(result="error").inc()
+
         logger.warning(
             "event=invalid_request reason=missing_or_invalid_json"
         )
@@ -213,6 +228,8 @@ def predict():
     ]
 
     if missing_fields:
+        PREDICTIONS.labels(result="error").inc()
+
         logger.warning(
             "event=validation_error field_locations=%s error_count=%s",
             missing_fields,
@@ -242,15 +259,12 @@ def predict():
             safe_input
         )
 
+        if model is None:
+            raise RuntimeError("Prediction model is not loaded")
+
         sample = pd.DataFrame([payload])
 
-        # Count actual inference attempts
-        try:
-            model = load_model()
-            prediction_code = int(model.predict(sample)[0])
-        except Exception:
-            PREDICTIONS.labels(result="error").inc()
-            raise
+        prediction_code = int(model.predict(sample)[0])
 
         PREDICTIONS.labels(result="success").inc()
 
@@ -269,6 +283,8 @@ def predict():
         }), 200
 
     except (ValueError, TypeError) as error:
+        PREDICTIONS.labels(result="error").inc()
+
         logger.warning(
             "event=prediction_input_error error_type=%s",
             type(error).__name__
@@ -279,6 +295,8 @@ def predict():
         }), 400
 
     except Exception:
+        PREDICTIONS.labels(result="error").inc()
+
         logger.exception("event=prediction_failed")
 
         return jsonify({
@@ -328,7 +346,6 @@ def handle_unexpected_error(error):
 if __name__ == "__main__":
     logger.info("event=application_starting")
 
-    # Load the model during application startup
     try:
         load_model()
     except Exception:
