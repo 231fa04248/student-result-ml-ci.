@@ -1,0 +1,20 @@
+groups:
+  - name: student-result-api-alerts
+    rules:
+      - alert: StudentAPIClientErrors
+        expr: sum(rate(student_api_http_requests_total{status=~"4.."}[2m])) > 0
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: "Student Result API is receiving client errors"
+          description: "4xx responses have been observed during the recent window."
+
+      - alert: StudentAPIDown
+        expr: up{job="student-result-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Student Result API monitoring target is down"
+          description: "Prometheus cannot scrape the deployed API."
