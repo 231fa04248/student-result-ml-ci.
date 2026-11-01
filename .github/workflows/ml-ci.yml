@@ -1,3 +1,4 @@
+```yaml
 name: Student Result ML CI-CD
 
 on:
@@ -52,7 +53,9 @@ jobs:
           cp student_result_model.pkl release_candidate/
           cp metrics.json release_candidate/
           cp requirements.txt release_candidate/
-          printf 'Student Result Prediction ML Application\nRun: python app.py\nEndpoint: POST /predict\n' > release_candidate/DEPLOYMENT.txt
+          cp Dockerfile release_candidate/
+          cp .dockerignore release_candidate/
+          printf "Student Result Prediction ML Application\nRun: python app.py\nEndpoint: POST /predict\n" > release_candidate/DEPLOYMENT.txt
 
       - name: Upload release candidate
         uses: actions/upload-artifact@v4
@@ -61,3 +64,4 @@ jobs:
           path: release_candidate/
           if-no-files-found: error
           retention-days: 7
+```
