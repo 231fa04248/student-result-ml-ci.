@@ -8,6 +8,9 @@ import joblib
 import pandas as pd
 from flask import Flask, jsonify, request, g
 from werkzeug.exceptions import HTTPException
+from prometheus_client import Counter, Histogram, Gauge
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+from fastapi.responses import Response
 
 # ---------------- LOGGING CONFIGURATION ----------------
 
