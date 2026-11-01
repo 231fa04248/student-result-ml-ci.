@@ -97,12 +97,11 @@ def after_request(response):
     )
 
     duration_ms = duration * 1000
-
     request_id = getattr(g, "request_id", "unknown")
 
     response.headers["X-Request-ID"] = request_id
 
-    # Exclude Prometheus scraping requests from API metrics
+    # Exclude Prometheus scraping requests
     if request.path != "/metrics":
         HTTP_REQUESTS.labels(
             method=request.method,
@@ -259,8 +258,9 @@ def predict():
             safe_input
         )
 
+        # Load model if it has not been loaded yet
         if model is None:
-            raise RuntimeError("Prediction model is not loaded")
+            load_model()
 
         sample = pd.DataFrame([payload])
 
