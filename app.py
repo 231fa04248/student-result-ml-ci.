@@ -4,7 +4,6 @@ from pathlib import Path
 import joblib
 import pandas as pd
 from flask import Flask, jsonify, request
-
 app = Flask(__name__)
 
 MODEL_PATH = Path("student_result_model.pkl")
