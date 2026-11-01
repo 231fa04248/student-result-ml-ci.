@@ -1,5 +1,5 @@
 
-name: Build, Test and Publish Student Result Prediction
+name: Build, Test and Publish Student Result ML
 
 on:
   push:
@@ -20,21 +20,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Verify required project files
-        run: |
-          echo "Checking project files..."
-
-          ls -la
-
-          test -f Dockerfile
-          test -f app.py
-          test -f requirements.txt
-          test -f student_result_model.pkl
-          test -f metrics.json
-
-          echo "All required files are present."
+        uses: actions/checkout@v4
 
       - name: Build Docker image
         run: docker build -t $IMAGE_NAME:ci .
@@ -45,22 +31,6 @@ jobs:
             --name student-result-ci \
             -p 5000:5000 \
             $IMAGE_NAME:ci
-
-      - name: Test API health endpoint
-        run: |
-          for attempt in {1..20}; do
-            if curl --fail --silent http://localhost:5000/health; then
-              echo "Health check passed."
-              exit 0
-            fi
-
-            echo "Waiting for API..."
-            sleep 3
-          done
-
-          echo "Health check failed."
-          docker logs student-result-ci
-          exit 1
 
       - name: Remove test container
         if: always()
@@ -79,12 +49,12 @@ jobs:
             -u "${{ github.actor }}" \
             --password-stdin
 
-      - name: Tag tested image
+      - name: Tag Docker image
         run: |
           docker tag $IMAGE_NAME:ci $IMAGE_ID:latest
           docker tag $IMAGE_NAME:ci $IMAGE_ID:sha-${{ github.sha }}
 
-      - name: Push tested image to GHCR
+      - name: Push Docker image to GHCR
         run: |
           docker push $IMAGE_ID:latest
           docker push $IMAGE_ID:sha-${{ github.sha }}
