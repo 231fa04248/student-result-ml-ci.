@@ -1,5 +1,5 @@
 ```yaml
-name: Student Result ML CI-CD
+name: Student Result ML CI CD
 
 on:
   push:
@@ -17,6 +17,7 @@ permissions:
 
 jobs:
   train-test-deliver:
+    name: Train, Test and Deliver
     runs-on: ubuntu-latest
 
     steps:
@@ -26,13 +27,13 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Upgrade pip
         run: python -m pip install --upgrade pip
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: python -m pip install -r requirements.txt
 
       - name: Train student result model
         run: python train_model.py
@@ -47,15 +48,19 @@ jobs:
         run: python -m unittest test_app.py -v
 
       - name: Prepare release candidate
+        shell: bash
         run: |
+          set -e
           mkdir -p release_candidate
+
           cp app.py release_candidate/
           cp student_result_model.pkl release_candidate/
           cp metrics.json release_candidate/
           cp requirements.txt release_candidate/
           cp Dockerfile release_candidate/
           cp .dockerignore release_candidate/
-          printf "Student Result Prediction ML Application\nRun: python app.py\nEndpoint: POST /predict\n" > release_candidate/DEPLOYMENT.txt
+
+          printf 'Student Result Prediction ML Application\nRun: python app.py\nEndpoint: POST /predict\n' > release_candidate/DEPLOYMENT.txt
 
       - name: Upload release candidate
         uses: actions/upload-artifact@v4
